@@ -14,10 +14,12 @@
 # With a directory, it checks the copies of the three files there instead.
 #
 # Then the same for arm64/alu_spec.S and frag.h, the AArch64 guest's (a
-# second argument names another directory).
+# second argument names another directory), and for the four files of x87/
+# (a third), whose host supplies the x87 state's layout (x87-arith.S).
 set -e
 src=$(cd "${1:-$(dirname "$0")/../riscv64}" && pwd)
 src64=$(cd "${2:-$(dirname "$0")/../arm64}" && pwd)
+srcx87=$(cd "${3:-$(dirname "$0")/../x87}" && pwd)
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 # The second host's file, on stdout, with HOST_<gadget> 1 for the names
@@ -198,3 +200,88 @@ bad=$(objdump -d --no-show-raw-insn "$tmp/a64.o" |
       grep -oE '\<([xw](7|15|1[89]|2[0-589]|30)|sp)\>' | sort -u | tr '\n' ' ')
 [ -z "$bad" ] || { echo "shared arm64 gadget code uses registers outside the contract: $bad"; exit 1; }
 echo "shared arm64 gadgets: $(nm "$tmp/a64.o" | grep -c ' T _*shared_gadget_') gadgets keep the contract"
+
+# The x87: a host whose CPU state and stream are not iSH-AOK's registers,
+# whose status word keeps TOP elsewhere and whose tags are a byte each, so
+# that the four access macros are real work and use their two registers.
+cat > "$tmp/x87.S" <<EOF
+_cpu .req x21
+_ip  .req x27
+#define CPU_fp 0x400
+#define CPU_fcw 0x3f0
+.macro .gadget name
+    .balign 16
+    .globl shared_gadget_\\name
+shared_gadget_\\name:
+.endm
+.macro gret_nomem pop=0
+    ldr x9, [_ip, #(\\pop * 8)]
+    add _ip, _ip, #(\\pop * 8 + 8)
+    br x9
+.endm
+.macro x87_ld_fsw r
+    ldrh \\r, [_cpu, 0x3f2]
+    ldr w16, [_cpu, 0x3f4]
+    bfi \\r, w16, 11, 3
+.endm
+.macro x87_st_fsw r
+    and w16, \\r, 0xffffc7ff
+    strh w16, [_cpu, 0x3f2]
+    ubfx w16, \\r, 11, 3
+    str w16, [_cpu, 0x3f4]
+.endm
+.macro x87_ld_valid r
+    ldr x16, [_cpu, 0x3f8]
+    mov x17, 0x4080
+    movk x17, 0x1020, lsl 16
+    movk x17, 0x0408, lsl 32
+    movk x17, 0x0102, lsl 48
+    mul x16, x16, x17
+    lsr x16, x16, 56
+    eor \\r, w16, 0xff
+.endm
+.macro x87_st_valid r
+    mvn w16, \\r
+    and x16, x16, 0xff
+    str x16, [_cpu, 0x3f8]
+.endm
+.macro x87_wait
+    x87_ld_fsw w8
+    tbz w8, 7, 1f
+    brk 0
+1:
+.endm
+.macro x87_comi_flags
+    str w9, [_cpu, 0x3e0]
+.endm
+.macro host_flag dst, which
+    ldr \\dst, [_cpu, 0x3e0]
+    .ifc \\which,c
+        and \\dst, \\dst, 1
+    .endif
+    .ifc \\which,z
+        ubfx \\dst, \\dst, 6, 1
+    .endif
+    .ifc \\which,p
+        ubfx \\dst, \\dst, 2, 1
+    .endif
+.endm
+    .text
+#include "$srcx87/x87-arith.S"
+#include "$srcx87/x87-stack.S"
+x87_pop1_here
+#include "$srcx87/x87-reg.S"
+x87_fcmov_all x87_fcmov, host_flag
+#include "$srcx87/x87-trans.S"
+EOF
+cc -arch arm64 -c -o "$tmp/x87.o" "$tmp/x87.S"
+undefined=$(nm -u "$tmp/x87.o")
+[ -z "$undefined" ] || { echo "shared x87 code refers outside itself:"; echo "$undefined"; exit 1; }
+# x0, x3-x17, x30 and sp are the code's, and x19 where a frame saves and restores it
+# (x87-trans.S's BF_ENTER and BF_LEAVE). Read off the source: the object has tables
+# in its text, which a disassembler reads as instructions.
+bad=$(sed -e 's/#.*//' -e 's|//.*||' "$srcx87"/x87-*.S |
+      grep -v 'str x19, \[sp\|ldr x19, \[sp' |
+      grep -oE '\<[xw](1|2|1[89]|2[0-9])\>' | sort -u | tr '\n' ' ')
+[ -z "$bad" ] || { echo "shared x87 code names registers outside the contract: $bad"; exit 1; }
+echo "shared x87: $(nm "$tmp/x87.o" | grep -c ' T _*shared_gadget_') gadgets keep the contract"
