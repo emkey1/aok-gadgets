@@ -14,7 +14,7 @@ not each have their own copy of what it does. Those sources live here.
 |-----------|------|----------|
 | `riscv64/` | The RV64 integer gadgets, the bodies of its loads, stores and branches (`frag.h`), and the table of fused pairs (`pairs.h`) | iSH-AOK's riscv64 guest; the plug-in's RISC-V front end |
 | `arm64/` | The bodies of the AArch64 guest's loads, stores and pairs (`frag.h`), and its operand-specialised integer gadgets (`alu_spec.S`) | iSH-AOK's arm64 guest; the plug-in's AArch64 front end |
-| `x87/` | The x87: 80-bit arithmetic in integer registers, exact to the hardware, the register stack, and every D8-DF instruction's register form | iSH-AOK's i386 and amd64 guests; the plug-in's x86 front end |
+| `x87/` | The x87: 80-bit arithmetic in integer registers, exact to the hardware, the register stack, every D8-DF instruction's register form, the transcendentals, and what the memory forms do once they have their operand | iSH-AOK's i386 and amd64 guests; the plug-in's x86 front end |
 
 ## The contract
 

@@ -15,7 +15,8 @@
 #
 # Then the same for arm64/alu_spec.S and frag.h, the AArch64 guest's (a
 # second argument names another directory), and for the four files of x87/
-# (a third), whose host supplies the x87 state's layout (x87-arith.S).
+# (a third), whose host supplies the x87 state's layout (x87-arith.S) and its
+# way to guest memory (x87-mem.S).
 set -e
 src=$(cd "${1:-$(dirname "$0")/../riscv64}" && pwd)
 src64=$(cd "${2:-$(dirname "$0")/../arm64}" && pwd)
@@ -272,6 +273,35 @@ shared_gadget_\\name:
 x87_pop1_here
 #include "$srcx87/x87-reg.S"
 x87_fcmov_all x87_fcmov, host_flag
+x87_wp .req x2
+.macro x87m_gadget arch, name
+.gadget m_\\name
+.endm
+.macro x87m_wait arch
+    x87_wait
+.endm
+.macro x87m_rprep arch, bits, id
+    add x9, _cpu, 0x3c0
+.endm
+.macro x87m_rtail arch, bits, id
+.endm
+.macro x87m_wprep arch, bits, id
+    add x87_wp, _cpu, 0x3c0
+.endm
+.macro x87m_wdone arch, bits, id
+.endm
+.macro x87m_wtail arch, bits, id
+.endm
+.macro x87m_ret arch
+    gret_nomem 1
+.endm
+#include "$srcx87/x87-mem.S"
+x87m_arith_all h, f32, 32, x87_ld_f32
+x87m_arith_all h, f64, 64, x87_ld_f64
+x87m_arith_all h, i16, 16, x87_ld_int
+x87m_arith_all h, i32, 32, x87_ld_int
+x87m_loads h
+x87m_stores h
 #include "$srcx87/x87-trans.S"
 EOF
 cc -arch arm64 -c -o "$tmp/x87.o" "$tmp/x87.S"
