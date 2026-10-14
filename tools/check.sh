@@ -186,10 +186,27 @@ handle_miss_\\id:
 .macro pc_param reg
     add \\reg, x25, \\reg
 .endm
-.macro f_leave_to reg
-    str \\reg, [_cpu, #16]
+// Its own indirect branches: [n_off][return address]; the address is
+// looked up somewhere of its own.
+.macro f_br_cached_body id, last, a1, a2, a3, a4, a5, fn=_, fm=_
+    ldr x8, [_ip]
+    f_src 10, x8, \\fn
+    str x10, [_cpu, #16]
     ldr _ip, [_cpu, #24]
     gret
+.endm
+.macro f_br_cached_stub id, last, a1, a2, a3, a4, a5, fn=_, fm=_
+.endm
+.macro f_blr_cached_body id, last, a1, a2, a3, a4, a5, fn=_, fm=_
+    ldp x8, x11, [_ip]
+    f_src 10, x8, \\fn
+    pc_param x11
+    str x11, [_cpu, #(F_X0 + 30*8)]
+    str x10, [_cpu, #16]
+    ldr _ip, [_cpu, #24]
+    gret
+.endm
+.macro f_blr_cached_stub id, last, a1, a2, a3, a4, a5, fn=_, fm=_
 .endm
     .text
 #include "$src64/alu_spec.S"
