@@ -1,5 +1,13 @@
 # AOK gadgets
 
+**Retired 2026-10-14.** Each engine now owns its copy of these sources:
+iSH-AOK in its tree, AOK VM's QEMU engine (emkey1/qemu) in
+`target/*/tcg/aok/shared/`. The two engines differ in their CPU state, how a
+block is left, their flags and how they reach guest memory, and keeping one
+source for both cost more than it saved. Nothing is synced from here any
+more; an improvement in one engine is ported to the other by hand when it is
+worth it. What follows describes the arrangement as it was.
+
 The gadget sources that more than one engine builds.
 
 iSH-AOK's JIT is threaded code: a guest instruction becomes the address of
