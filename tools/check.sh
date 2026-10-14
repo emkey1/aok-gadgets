@@ -117,11 +117,11 @@ bad=$(objdump -d --no-show-raw-insn "$tmp/host.o" |
 echo "shared riscv64 gadgets: $(echo $have | wc -w | tr -d ' ') gadgets and" \
      "$(nm "$tmp/host.o" | grep -c 'shared_gadget_f2_') pairs keep the contract"
 
-# ---- arm64: alu_spec.S and the bodies of frag.h, under a host that is
-# neither AOK nor QEMU. The contract (frag.h, "A second host"): the host names
-# _cpu, _ip, _addr and the six registers a memory body keeps across its
-# access, gives the flags and guest memory, and the bodies use x8-x14, x16
-# and x17 besides.
+# ---- arm64: alu_spec.S, the bodies of frag.h and every pair of pairs.h,
+# under a host that is neither AOK nor QEMU. The contract (frag.h, "A second
+# host"): the host names _cpu, _ip, _addr and the six registers a memory body
+# keeps across its access, gives the flags, guest memory and the ways out of
+# a block, and the bodies use x8-x17 besides.
 cat > "$tmp/a64.S" <<EOF
 #define A64_GADGET_HOST check
 _cpu    .req x26
@@ -175,6 +175,22 @@ handle_miss_\\id:
 .macro write_bullshit size, id, ahead=0
     read_bullshit \\size, \\id, \\ahead
 .endm
+// Ways out: two words each, and code addresses relative to one in x25.
+#define F_WAY_WORDS 2
+#define F_X0 0x100
+.macro branch_leave off
+    ldp x9, x10, [_ip, #\\off]
+    add _ip, x10, x9
+    gret
+.endm
+.macro pc_param reg
+    add \\reg, x25, \\reg
+.endm
+.macro f_leave_to reg
+    str \\reg, [_cpu, #16]
+    ldr _ip, [_cpu, #24]
+    gret
+.endm
     .text
 #include "$src64/alu_spec.S"
 f_gadget mov_const, f_mov_const, _, _, _, _, _
@@ -192,15 +208,19 @@ f_gadget stp32, f_stp, 64, 4, w17, w6, _
 f_gadget ldp64_wb\\pre, f_ldp_wb, 128, 8, x17, _fval2, \\pre
 f_gadget stp64_wb\\pre, f_stp_wb, 128, 8, x17, _fval2, \\pre
 .endr
+#define FUSE2(a, b) fuse2 a##__##b, R_##a, K_##b, F_##a, F_##b
+#include "$src64/pairs.h"
 EOF
 cc -arch arm64 -c -o "$tmp/a64.o" "$tmp/a64.S"
 undefined=$(nm -u "$tmp/a64.o")
 [ -z "$undefined" ] || { echo "shared arm64 gadget code refers outside itself:"; echo "$undefined"; exit 1; }
-# x8-x14, x16, x17 and the registers this host named (x0-x6, x26, x27)
+# x8-x17 and the registers this host named (x0-x6, x26, x27, and x25 inside
+# its own pc_param)
 bad=$(objdump -d --no-show-raw-insn "$tmp/a64.o" |
-      grep -oE '\<([xw](7|15|1[89]|2[0-589]|30)|sp)\>' | sort -u | tr '\n' ' ')
+      grep -oE '\<([xw](7|1[89]|2[0-48]|29|30)|sp)\>' | sort -u | tr '\n' ' ')
 [ -z "$bad" ] || { echo "shared arm64 gadget code uses registers outside the contract: $bad"; exit 1; }
-echo "shared arm64 gadgets: $(nm "$tmp/a64.o" | grep -c ' T _*shared_gadget_') gadgets keep the contract"
+echo "shared arm64 gadgets: $(nm "$tmp/a64.o" | grep ' T _*shared_gadget_' | grep -vc 'shared_gadget_f2[nm]*_') gadgets and" \
+     "$(nm "$tmp/a64.o" | grep -c 'shared_gadget_f2_') pairs keep the contract"
 
 # The x87: a host whose CPU state and stream are not iSH-AOK's registers,
 # whose status word keeps TOP elsewhere and whose tags are a byte each, so
